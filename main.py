@@ -7,9 +7,7 @@ import numpy as np
 
 app = FastAPI()
 
-# -------------------------
-# CORS (ALLOW FRONTEND)
-# -------------------------
+# --- CORS ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,58 +16,52 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -------------------------
-# SPSS LOGIC FUNCTION
-# -------------------------
+# --- SPSS LOGIC (The Brain) ---
 def run_spss_logic(df):
-    # 1. CLEANING: Remove %, $, and commas so "5.0%" becomes 5.0
+    # Fix 1: Auto-Align Headers (Removes spaces and handles case)
+    df.columns = df.columns.str.strip()
+
+    # Fix 2: Auto-Clean Data (Removes %, $, and commas)
     for col in df.columns:
         if df[col].dtype == 'object':
             df[col] = df[col].astype(str).str.replace(r'[%\$,]', '', regex=True)
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    # 2. DESCRIPTIVE STATS: Full SPSS Table Metrics
-    numeric_cols = df.select_dtypes(include=[np.number]).columns
-    descriptive = {}
+    # Fix 3: Fuzzy Variable Mapping
+    gender_col = next((c for c in df.columns if 'gender' in c.lower()), None)
+    salary_col = next((c for c in df.columns if 'salary' in c.lower() or 'income' in c.lower()), None)
 
-    for col in numeric_cols:
-        series = df[col].dropna()
-        if len(series) > 0:
-            descriptive[col] = {
-                "n": int(series.count()),
-                "min": float(series.min()),
-                "max": float(series.max()),
-                "mean": float(series.mean()),
-                "median": float(series.median()),
-                "std": float(series.std()),
-                "skew": float(series.skew()),
-                "kurt": float(series.kurtosis())
-            }
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    
+    descriptive = {col: {
+        "n": int(df[col].count()),
+        "mean": float(df[col].mean()),
+        "median": float(df[col].median()),
+        "std": float(df[col].std()),
+        "min": float(df[col].min()),
+        "max": float(df[col].max()),
+        "skew": float(df[col].skew()),
+        "kurt": float(df[col].kurtosis())
+    } for col in numeric_cols}
 
     result = {"descriptive": descriptive}
 
-    # 3. T-TEST: Independent Samples
-    if "Gender" in df.columns and "Annual Salary" in df.columns:
-        df["Gender"] = df["Gender"].astype(str).str.strip().str.capitalize()
+    # Fix 4: Robust T-Test Alignment
+    if gender_col and salary_col:
+        df['temp_gender'] = df[gender_col].astype(str).str.strip().str.lower()
+        male_grp = df[df['temp_gender'].str.startswith('m', na=False)][salary_col].dropna()
+        female_grp = df[df['temp_gender'].str.startswith('f', na=False)][salary_col].dropna()
         
-        male_sal = df[df["Gender"] == "Male"]["Annual Salary"].dropna()
-        female_sal = df[df["Gender"] == "Female"]["Annual Salary"].dropna()
-
-        if len(male_sal) > 1 and len(female_sal) > 1:
-            t_stat, p_val = stats.ttest_ind(male_sal, female_sal, nan_policy="omit")
+        if len(male_grp) > 1 and len(female_grp) > 1:
+            t_stat, p_val = stats.ttest_ind(male_grp, female_grp, nan_policy='omit')
             result["t_test"] = {
                 "t_stat": float(t_stat),
                 "p_value": float(p_val),
                 "significant": bool(p_val < 0.05)
             }
-        else:
-            result["t_test"] = {"error": "Insufficient group data for T-Test"}
-
     return result
 
-# -------------------------
-# API ENDPOINT
-# -------------------------
+# --- API ENDPOINT ---
 @app.post("/spss/analyze")
 async def analyze_file(file: UploadFile = File(...)):
     contents = await file.read()
