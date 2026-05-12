@@ -13,3 +13,5 @@ plotly
 pingouin
 scikit-learn
 pydantic
+python-docx
+tabula-py
