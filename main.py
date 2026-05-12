@@ -1,4 +1,3 @@
-py
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
@@ -9,6 +8,7 @@ import numpy as np
 
 app = FastAPI()
 
+# --- CORS (Connects to your website) ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,7 +19,8 @@ app.add_middleware(
 
 def run_research_suite(df, options):
     df.columns = df.columns.str.strip()
-    # Auto-Clean Symbols
+    
+    # 1. AUTO-CLEAN SYMBOLS (Fixes Protocol Failure)
     for col in df.columns:
         if df[col].dtype == 'object':
             df[col] = df[col].astype(str).str.replace(r'[%\$,]', '', regex=True)
@@ -28,12 +29,16 @@ def run_research_suite(df, options):
     numeric_cols = df.select_dtypes(include=[np.number]).columns
     results = {}
 
-    # 1. DESCRIPTIVE & NORMALITY
+    # 2. DESCRIPTIVE & NORMALITY
     if options.get("descriptive"):
         results["descriptive"] = {col: {
-            "n": int(df[col].count()), "mean": float(df[col].mean()),
-            "std": float(df[col].std()), "min": float(df[col].min()), "max": float(df[col].max()),
-            "skew": float(df[col].skew()), "kurt": float(df[col].kurtosis())
+            "n": int(df[col].count()), 
+            "mean": float(df[col].mean()),
+            "std": float(df[col].std()), 
+            "min": float(df[col].min()), 
+            "max": float(df[col].max()),
+            "skew": float(df[col].skew()), 
+            "kurt": float(df[col].kurtosis())
         } for col in numeric_cols}
         
     if options.get("normality") and len(numeric_cols) > 0:
@@ -42,7 +47,7 @@ def run_research_suite(df, options):
             "p_value": float(stats.shapiro(df[col].dropna())[1])
         } for col in numeric_cols if len(df[col].dropna()) > 3}
 
-    # 2. INFERENTIAL TESTS
+    # 3. INFERENTIAL TESTS (T-Test & Correlation)
     gender_col = next((c for c in df.columns if 'gender' in c.lower()), None)
     salary_col = next((c for c in df.columns if 'salary' in c.lower() or 'income' in c.lower()), None)
     
@@ -54,14 +59,14 @@ def run_research_suite(df, options):
             t, p = stats.ttest_ind(m, f)
             results["ttest"] = {"t_stat": float(t), "p_value": float(p), "df": int(len(m)+len(f)-2)}
 
-    # 3. REGRESSION & PREDICTION
+    # 4. REGRESSION & PREDICTION
     if options.get("regression") and len(numeric_cols) >= 2:
         x, y = df[numeric_cols[0]].dropna(), df[numeric_cols[-1]].dropna()
         idx = x.index.intersection(y.index)
         slope, intercept, r, p, err = stats.linregress(x.loc[idx], y.loc[idx])
         results["regression"] = {"r_squared": float(r**2), "p_value": float(p), "slope": float(slope)}
 
-    # 4. SPECIALIZED
+    # 5. SPECIALIZED (Cronbach & Shannon)
     if options.get("alpha") and len(numeric_cols) > 1:
         items = df[numeric_cols].dropna()
         k = items.shape[1]
