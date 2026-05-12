@@ -1,4 +1,3 @@
-py
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
@@ -26,11 +25,10 @@ def run_spss_logic(df):
     # 1. CLEANING: Remove %, $, and commas so "5.0%" becomes 5.0
     for col in df.columns:
         if df[col].dtype == 'object':
-            # Remove common non-numeric symbols
             df[col] = df[col].astype(str).str.replace(r'[%\$,]', '', regex=True)
             df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    # 2. DESCRIPTIVE STATS: SPSS Table Metrics
+    # 2. DESCRIPTIVE STATS: Full SPSS Table Metrics
     numeric_cols = df.select_dtypes(include=[np.number]).columns
     descriptive = {}
 
@@ -45,14 +43,13 @@ def run_spss_logic(df):
                 "median": float(series.median()),
                 "std": float(series.std()),
                 "skew": float(series.skew()),
-                "kurt": float(series.kurtosis()) # Fisher’s Kurtosis (Normal = 0)
+                "kurt": float(series.kurtosis())
             }
 
     result = {"descriptive": descriptive}
 
     # 3. T-TEST: Independent Samples
     if "Gender" in df.columns and "Annual Salary" in df.columns:
-        # Normalize gender strings (handle 'male' vs 'Male')
         df["Gender"] = df["Gender"].astype(str).str.strip().str.capitalize()
         
         male_sal = df[df["Gender"] == "Male"]["Annual Salary"].dropna()
@@ -76,7 +73,6 @@ def run_spss_logic(df):
 @app.post("/spss/analyze")
 async def analyze_file(file: UploadFile = File(...)):
     contents = await file.read()
-
     try:
         if file.filename.endswith(".csv"):
             df = pd.read_csv(io.BytesIO(contents))
