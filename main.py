@@ -9,18 +9,12 @@ import numpy as np
 
 app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 def run_universal_logic(df, options):
     df.columns = df.columns.str.strip()
     
-    # Clean Symbols
+    # 1. CLEANING (Essential)
     for col in df.columns:
         if df[col].dtype == 'object':
             df[col] = df[col].astype(str).str.replace(r'[%\$,]', '', regex=True)
@@ -29,44 +23,53 @@ def run_universal_logic(df, options):
     numeric_cols = df.select_dtypes(include=[np.number]).columns
     results = {}
 
-    # ALWAYS calculate descriptives by default
-    results["descriptive"] = {col: {
-        "n": int(df[col].count()),
-        "mean": float(df[col].mean()),
-        "std": float(df[col].std()),
-        "min": float(df[col].min()),
-        "max": float(df[col].max()),
-        "skew": float(df[col].skew())
-    } for col in numeric_cols}
+    # 2. DESCRIPTIVES
+    if options.get("descriptive"):
+        results["descriptive"] = {col: {
+            "n": int(df[col].count()), "mean": float(df[col].mean()),
+            "std": float(df[col].std()), "skew": float(df[col].skew())
+        } for col in numeric_cols}
 
-    # Optional Inferential Tests (Only if requested)
+    # 3. T-TEST (Robust)
     if options.get("ttest") or options.get("inferential"):
-        gender_col = next((c for c in df.columns if 'gender' in c.lower()), None)
-        salary_col = next((c for c in df.columns if 'salary' in c.lower()), None)
-        if gender_col and salary_col:
-            df['tmp_g'] = df[gender_col].astype(str).str.strip().str.lower()
-            m = df[df['tmp_g'].str.startswith('m', na=False)][salary_col].dropna()
-            f = df[df['tmp_g'].str.startswith('f', na=False)][salary_col].dropna()
-            if len(m) > 1 and len(f) > 1:
-                t_stat, p_val = stats.ttest_ind(m, f, nan_policy='omit')
-                results["t_test"] = {"t_stat": float(t_stat), "p_value": float(p_val), "significant": bool(p_val < 0.05), "df": int(len(m)+len(f)-2)}
+        try:
+            gender_col = next((c for c in df.columns if 'gender' in c.lower()), None)
+            salary_col = next((c for c in df.columns if 'salary' in c.lower()), None)
+            if gender_col and salary_col:
+                df['tmp_g'] = df[gender_col].astype(str).str.strip().str.lower()
+                m = df[df['tmp_g'].str.startswith('m', na=False)][salary_col].dropna()
+                f = df[df['tmp_g'].str.startswith('f', na=False)][salary_col].dropna()
+                if len(m) > 1 and len(f) > 1:
+                    t_stat, p_val = stats.ttest_ind(m, f, nan_policy='omit')
+                    results["t_test"] = {"t_stat": float(t_stat), "p_value": float(p_val), "significant": bool(p_val < 0.05), "df": int(len(m)+len(f)-2)}
+        except: pass
+
+    # 4. REGRESSION (Robust)
+    if options.get("regression") and len(numeric_cols) >= 2:
+        try:
+            x, y = df[numeric_cols[0]].dropna(), df[numeric_cols[-1]].dropna()
+            idx = x.index.intersection(y.index)
+            slope, intercept, r_v, p_v, std_e = stats.linregress(x.loc[idx], y.loc[idx])
+            results["regression"] = {"r_squared": float(r_v**2), "p_value": float(p_v), "slope": float(slope), "intercept": float(intercept)}
+        except: pass
+
+    # 5. ALPHA (Robust)
+    if options.get("reliability") and len(numeric_cols) > 1:
+        try:
+            items = df[numeric_cols].dropna()
+            k = items.shape[1]
+            alpha = (k / (k-1)) * (1 - (items.var(axis=0).sum() / items.sum(axis=1).var()))
+            results["reliability"] = {"alpha": float(alpha)}
+        except: pass
 
     return results
 
 @app.post("/spss/analyze")
 async def analyze(file: UploadFile = File(...), options: str = Form("{}")):
     contents = await file.read()
-    # Handle both empty and filled options
     try:
         opt_dict = json.loads(options) if options else {}
-    except:
-        opt_dict = {}
-        
-    try:
-        if file.filename.endswith(".csv"):
-            df = pd.read_csv(io.BytesIO(contents))
-        else:
-            df = pd.read_excel(io.BytesIO(contents))
+        df = pd.read_csv(io.BytesIO(contents)) if file.filename.endswith(".csv") else pd.read_excel(io.BytesIO(contents))
         return run_universal_logic(df, opt_dict)
     except Exception as e:
         return {"error": str(e)}
