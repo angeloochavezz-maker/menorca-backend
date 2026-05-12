@@ -6,3 +6,10 @@ scipy
 statsmodels
 python-multipart
 openpyxl
+python-docx
+matplotlib
+seaborn
+plotly
+pingouin
+scikit-learn
+pydantic
