@@ -9,7 +9,13 @@ import numpy as np
 
 app = FastAPI()
 
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 def run_research_suite(df, options):
     df.columns = df.columns.str.strip()
@@ -38,7 +44,7 @@ def run_research_suite(df, options):
 
     # 2. INFERENTIAL TESTS
     gender_col = next((c for c in df.columns if 'gender' in c.lower()), None)
-    salary_col = next((c for c in df.columns if 'salary' in c.lower()), None)
+    salary_col = next((c for c in df.columns if 'salary' in c.lower() or 'income' in c.lower()), None)
     
     if options.get("ttest") and gender_col and salary_col:
         df['tmp_g'] = df[gender_col].astype(str).str.strip().str.lower()
@@ -55,7 +61,7 @@ def run_research_suite(df, options):
         slope, intercept, r, p, err = stats.linregress(x.loc[idx], y.loc[idx])
         results["regression"] = {"r_squared": float(r**2), "p_value": float(p), "slope": float(slope)}
 
-    # 4. SPECIALIZED (Cronbach & Shannon)
+    # 4. SPECIALIZED
     if options.get("alpha") and len(numeric_cols) > 1:
         items = df[numeric_cols].dropna()
         k = items.shape[1]
@@ -68,7 +74,7 @@ def run_research_suite(df, options):
             counts = df[c_col].dropna().values
             p = counts / np.sum(counts)
             h = -np.sum(p[p > 0] * np.log(p[p > 0]))
-            results["ecological"] = {"shannon_h": float(h), "evenness": float(h/np.log(len(counts)))}
+            results["ecological"] = {"shannon_h": float(h), "evenness": float(h/np.log(len(counts)) if len(counts) > 1 else 0)}
 
     return results
 
