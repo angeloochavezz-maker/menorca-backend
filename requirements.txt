@@ -14,4 +14,4 @@ pingouin
 scikit-learn
 pydantic
 python-docx
-
+pymer4==0.9.2
